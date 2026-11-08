@@ -1,0 +1,9 @@
+.git
+.gitignore
+.dockerignore
+.cursor
+hooks
+docker-compose.yml
+README.md
+LICENSE
+VERSION

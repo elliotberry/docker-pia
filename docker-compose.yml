@@ -1,0 +1,30 @@
+# Example only. Credentials come from Docker secrets so they never appear in the image or `docker inspect`.
+services:
+  docker-pia:
+    image: wiorca/docker-pia
+    container_name: docker-pia
+    init: false            # the image already runs tini
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/New_York
+      PIA_USERNAME_FILE: /run/secrets/pia_username
+      PIA_PASSWORD_FILE: /run/secrets/pia_password
+      PIA_REGION: auto     # or a region id such as ca_toronto
+      PIA_PORT_FORWARD: "false"
+      PIA_KILLSWITCH: "true"
+      # LOCAL_NETWORKS: 192.168.1.0/24   # LAN ranges that must stay reachable
+    volumes:
+      - ./config:/config
+    secrets:
+      - pia_username
+      - pia_password
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+
+secrets:
+  pia_username:
+    file: ./secrets/pia_username
+  pia_password:
+    file: ./secrets/pia_password

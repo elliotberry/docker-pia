@@ -1,55 +1,59 @@
+# syntax=docker/dockerfile:1
 
-# Based on Ubuntu 20.04 LTS
-FROM ubuntu:20.04
+# Lean WireGuard-only PIA client, built on PIA's documented manual-connections protocol.
+FROM alpine:3.24
 
-# Build arguments
 ARG BUILD_DATE
 ARG VCS_REF
-ARG VERSION=0.0.12
+ARG VERSION=1.0.0
 
-# Labels
-LABEL com.wiorca.build-date=$BUILD_DATE \
-      com.wiorca.vcs-url="https://github.com/wiorca/docker-pia.git" \
-      com.wiorca.vcs-ref=$VCS_REF \
-      com.wiorca.schema-version=$VERSION
+LABEL org.opencontainers.image.title="docker-pia" \
+      org.opencontainers.image.description="Private Internet Access (WireGuard) container to use as a base for other images" \
+      org.opencontainers.image.url="https://github.com/wiorca/docker-pia" \
+      org.opencontainers.image.source="https://github.com/wiorca/docker-pia.git" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$VCS_REF \
+      org.opencontainers.image.created=$BUILD_DATE
 
-# The volume for the docker_user home directory, and where configuration files should be stored.
+# Runtime packages only: no GUI client, no expect, no net-tools. Versions follow the pinned Alpine release.
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        bash \
+        ca-certificates \
+        curl \
+        ip6tables \
+        iproute2 \
+        iptables \
+        iptables-legacy \
+        jq \
+        su-exec \
+        tini \
+        tzdata \
+        wireguard-tools-wg
+
+# The application home directory and configuration files.
 VOLUME [ "/config" ]
 
-# Some environment variables
-ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=America/Toronto \
+# Credentials are intentionally not defaulted here; pass PIA_USERNAME/PIA_PASSWORD
+# (or PIA_USERNAME_FILE/PIA_PASSWORD_FILE) at runtime.
+ENV TZ=UTC \
     PUID=1000 \
     PGID=1000 \
-    PIA_USERNAME=username \
-    PIA_PASSWORD=password \
+    PIA_PORT_FORWARD=false \
+    PIA_KILLSWITCH=true \
+    PIA_DNS=true \
     PIA_DEBUG_LOGGING=false \
-    PIA_PROTOCOL=openvpn \
-    PIA_PORT_FORWARD=true \
-    PIA_LOCATION=auto
+    IMAGE_VERSION=$VERSION
 
-# Update ubuntu container, and install the basics, Add windscribe ppa, Install windscribe, and some to be removed utilities
-RUN apt -y update && apt -y dist-upgrade && apt install -y gnupg apt-utils ca-certificates expect iptables iputils-ping net-tools iputils-tracepath curl \
-    libnl-3-200 libnl-route-3-200 libglib2.0-0 iproute2 && \
-    echo "resolvconf resolvconf/linkify-resolvconf boolean false" | debconf-set-selections && \
-    apt -y autoremove && apt -y clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# PIA's CA certificate, used to verify the WireGuard and port-forward APIs.
+COPY certs/ca.rsa.4096.crt /opt/pia/ca.rsa.4096.crt
 
-# Add in the docker user
-RUN groupadd -r docker_group  && useradd -r -d /config -g docker_group docker_user
+# Scripts change most often, so they come last to keep the layers above cached.
+COPY --chmod=0755 scripts/ /opt/scripts/
 
-# Add in scripts for health check and start-up
-ADD scripts /opt/scripts/
-ADD install.sh /install.sh
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD [ "/opt/scripts/health-check.sh" ]
 
-# Install PIA
-RUN curl -L $( curl -s https://www.privateinternetaccess.com/installer/download_installer_linux_beta | grep installers | cut -d \" -f 2 | cut -d \= -f 2 ) > /installer.bin && \
-    chmod o+rwx /installer.bin && /installer.bin --quiet --accept --noprogress --nox11 --noexec --keep --target /pia-installer && \
-    cp /install.sh /pia-installer/install.sh && /pia-installer/install.sh --skip-service && \
-    rm -rf /pia-installer /installer.bin /install.sh
-
-# Enable the health check for the VPN and app
-HEALTHCHECK --interval=5m --timeout=60s \
-  CMD /opt/scripts/health-check.sh || exit 1
-
-# Run the container
-CMD [ "/bin/bash", "/opt/scripts/vpn-startup.sh" ]
+ENTRYPOINT [ "/sbin/tini", "--" ]
+CMD [ "/opt/scripts/entrypoint.sh" ]
