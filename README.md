@@ -232,6 +232,18 @@ cd docker-pia
 docker build --pull -t wiorca/docker-pia:latest .
 ```
 
+## CI and GitHub Container Registry
+
+`.github/workflows/docker.yml` lints the scripts and Dockerfile, then builds a multi-arch (`linux/amd64`, `linux/arm64`) image with SBOM and provenance attestations.
+
+| Event | Result |
+| --- | --- |
+| Pull request | Build only, nothing is pushed |
+| Push to `main` | Pushes `ghcr.io/<owner>/docker-pia:latest` and `:sha-<short>` |
+| Tag `vX.Y.Z` | Pushes `:X.Y.Z`, `:X.Y`, `:X` and `:sha-<short>` |
+
+No secrets need to be configured; the workflow logs in with the built-in `GITHUB_TOKEN`. To release, update `VERSION` and run `git tag vX.Y.Z && git push --tags`. After the first push, open the package on GitHub (Packages → docker-pia → Package settings) to make it public if you want anonymous pulls.
+
 To lint the scripts and the Dockerfile locally:
 
 ```
